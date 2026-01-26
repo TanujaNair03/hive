@@ -27,6 +27,41 @@ from framework.testing.prompts import (
 # Initialize MCP server
 mcp = FastMCP("agent-builder")
 
+PROVIDER_AGNOSTIC_TEST_HEADER = """\"\"\"
+{test_type} tests for {agent_name}.
+
+{description}
+
+REQUIRES: API_KEY for real testing.
+\"\"\"
+
+import os
+import pytest
+from {agent_module} import default_agent
+
+
+def _get_api_key():
+    \"\"\"Get API key from CredentialManager or environment.\"\"\"
+    try:
+        from aden_tools.credentials import CredentialManager
+        creds = CredentialManager()
+        # Dynamically check for any available provider to avoid lock-in
+        for provider in ["openai", "anthropic", "cerebras", "groq"]:
+            if creds.is_available(provider):
+                return creds.get(provider)
+    except ImportError:
+        pass
+    # Fallback to standard environment variables
+    return os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+
+
+# Skip tests if no valid API key is found and not in mock mode
+pytestmark = pytest.mark.skipif(
+    not _get_api_key() and not os.environ.get("MOCK_MODE"),
+    reason="API key required. Please set OPENAI_API_KEY, ANTHROPIC_API_KEY, or use MOCK_MODE=1."
+)
+"""
+
 
 # Session persistence directory
 SESSIONS_DIR = Path(".agent-builder-sessions")
@@ -2426,7 +2461,8 @@ def generate_constraint_tests(
     constraints_formatted = _format_constraints(goal.constraints) if goal.constraints else "No constraints defined"
 
     # Generate the file header that should be used
-    file_header = PYTEST_TEST_FILE_HEADER.format(
+
+    file_header = PROVIDER_AGNOSTIC_TEST_HEADER.format(
         test_type="Constraint",
         agent_name=agent_module,
         description=f"Tests for constraints defined in goal: {goal.name}",
@@ -2506,7 +2542,7 @@ def generate_success_tests(
     criteria_formatted = _format_success_criteria(goal.success_criteria) if goal.success_criteria else "No success criteria defined"
 
     # Generate the file header that should be used
-    file_header = PYTEST_TEST_FILE_HEADER.format(
+    file_header = PROVIDER_AGNOSTIC_TEST_HEADER.format(
         test_type="Success criteria",
         agent_name=agent_module,
         description=f"Tests for success criteria defined in goal: {goal.name}",
